@@ -11,15 +11,15 @@ Arduino Library and example sketch to aid in easy deployment of arduimaton nodes
 
 ## Installation
 
-1. Download required dependencies and place them in your `Arduino Libraries` folder
+1. Download required dependencies and place them in your `Arduino/libraries` folder
  - Available on Arduino Library Manager:
    - [RF24](https://github.com/TMRh20/RF24)
-   - [RF24Network](https://github.com/TMRh20/RF24Network)
-   - [ArduinoJson](https://github.com/bblanchon/ArduinoJson)
+    - [RF24Network](https://github.com/TMRh20/RF24Network)
+    - [ArduinoJson](https://github.com/bblanchon/ArduinoJson)
  - Not on library manager, need to get straight from Github:
    - [CryptoLibs by rweather](https://github.com/rweather/arduinolibs)
-   - [Base64](https://github.com/adamvr/arduino-base64)
-2. `git clone` this repository into your `Arduino Libraries` folder (for easy updates via `git pull`) 
+    - [Base64](https://github.com/adamvr/arduino-base64)
+2. `git clone` this repository into your `Arduino/libraries` folder (for easy updates via `git pull`) 
 
 ## Configuration `arduimaton_config.h`
 Arduimaton nodes must have the same secret key configuration as the Automatond master node.
