@@ -2,20 +2,46 @@
 
 // initalize RF24 Radio
 RF24 radio(9,10);
-
+RF24Network network(radio);
 // initalize Arduimaton class with radio, passed by reference.
-Arduimaton switches(radio);
+Arduimaton switches(network);
 
 void buttonInterval();
 void networkHandler(RF24NetworkHeader&);
-
 void sendJsonPL(char*, int );
+
+
+const int greenB = 4;  // the pin numbelsr of the pushbutton
+const int redB = 5;    // the pin number of the red pushbutton
+
+const int redL = 6;    // the pin number of the red LED
+const int greenL = 7;  // the pin number of the LED
+
+const int relayG = 3;  // the pin number of the green relay
+const int relayR = 2;  // the number of the Red relay
+
+// Variables will change:
+int GledState = LOW;         // the current state of the output pin
+int GbuttonState;             // the current reading from the input pin
+int GlastButtonState = LOW;   // the previous reading from the input pin
+
+// Variables will change:
+int RledState = LOW;         // the current state of the output pin
+int RbuttonState;             // the current reading from the input pin
+int RlastButtonState = LOW;   // the previous reading from the input pin
+
+// the following variables are long's because the time, measured in miliseconds,
+// will quickly become a bigger number than can be stored in an int.
+unsigned long RlastDebounceTime = 0;  // the last time the output pin was toggled
+unsigned long GlastDebounceTime = 0;  // the last time the output pin was toggled
+unsigned int debounceDelay = 80;    // the debounce time; increase if the output flickers
+
 
 void setup() {
   Serial.begin(9600);
   // doesnt really matter at this point, but sends an array with heartbeat container this info base
   // str:name, str:version, int:type
-  switches.setInfo("switches", "0.0.1", 15);
+  switches.setInfo("switches", "0.0.3", 15);
   
   // pass a function pointer through to the register handler function to register a network handler
   // the first handler will catch the first of the ACK_MSG_TYPES
@@ -37,32 +63,25 @@ void setup() {
   
   // Begin RF24Network
   switches.begin(02);
-  
-  // configure arduimaton pins used in intervals and network handlers.
-  switches.button_a_p = 4;
-  switches.button_b_p = 5;
-  switches.led_a_p = 7;
-  switches.led_b_p = 6;
-  switches.rs_a_p = 3;
-  switches.rs_b_p = 8;
+
 
   // setup pins
-  pinMode(switches.button_a_p, INPUT);
-  pinMode(switches.button_b_p, INPUT);
+  pinMode(greenB, INPUT);
+  pinMode(redB, INPUT);
   
-  pinMode(switches.led_a_p, OUTPUT);
-  pinMode(switches.led_b_p, OUTPUT);
+  pinMode(redL, OUTPUT);
+  pinMode(greenL, OUTPUT);
   
-  pinMode(switches.rs_a_p, OUTPUT);
-  pinMode(switches.rs_b_p, OUTPUT);
+  pinMode(relayG, OUTPUT);
+  pinMode(relayR, OUTPUT);
 
   // set initial LED state
-  digitalWrite(switches.led_a_p, switches.led_a);
-  digitalWrite(switches.led_b_p, switches.led_b);
+  digitalWrite(redL,  RledState);
+  digitalWrite(greenL, GledState);
 
   // set initial RELAY state, oposite of LED
-  digitalWrite(switches.rs_a_p, !switches.led_a);
-  digitalWrite(switches.rs_b_p, !switches.led_b);
+  digitalWrite(relayG, !GledState);
+  digitalWrite(relayR, !RledState);
 
 }
 
@@ -83,9 +102,9 @@ void sendJsonPL(char* key, int val ){
     char json[50];
     size_t sz = root.printTo(json, sizeof(json)); 
     json[sz] = '\0'; 
-    char encodedPL[90];
+    char encodedPL[110];
     // fill encoded payload buffer with a generated payload
-    size_t plLen = switches.genPayload(encodedPL, json, 90 );
+    size_t plLen = switches.genPayload(encodedPL, json, 110 );
     encodedPL[plLen] = '\0';
     //create RF24 network header, destined for the master node, of NODE_MSG1 which does not expect an ACK
     RF24NetworkHeader header(00, NODE_MSG1);
@@ -113,15 +132,15 @@ void networkHandler(RF24NetworkHeader& header)
     //Serial.println(dataPL);
     if(strncmp(dataPL, "Red", 3) == 0){
       //Serial.println("got red payload!");
-      switches.led_b = !switches.led_b;
-      digitalWrite(switches.led_b_p, switches.led_b);
-      digitalWrite(switches.rs_b_p, !switches.led_b);  // should be the 'same' as LED, in the case of relays ON is LOW, OFF is HIGH         
+      RledState = !RledState;
+      digitalWrite(redL, RledState);
+      digitalWrite(relayR, !RledState);  // should be the 'same' as LED, in the case of relays ON is LOW, OFF is HIGH         
     } else {
        // Serial.println("got other payload!");
         Serial.println(dataPL);
-       switches.led_a = !switches.led_a;
-      digitalWrite(switches.led_a_p, switches.led_a);
-      digitalWrite(switches.rs_a_p, !switches.led_a);  // should be the 'same' as LED, in the case of relays ON is LOW, OFF is HIGH 
+       GledState = !GledState;
+      digitalWrite(greenL, GledState);
+      digitalWrite(relayR, !GledState);  // should be the 'same' as LED, in the case of relays ON is LOW, OFF is HIGH 
     }
    } else {
     Serial.println("Invalid payload");
@@ -133,51 +152,51 @@ void networkHandler(RF24NetworkHeader& header)
 // button handling interval example
 void buttonInterval()
 {
-  int readingG = digitalRead(switches.button_a_p);
-  int readingR = digitalRead(switches.button_b_p);
+  int readingG = digitalRead(greenB);
+  int readingR = digitalRead(redB);
 
     // If the switch changed, due to noise or pressing:
-  if (readingR !=  switches.button_a[1]) {
+  if (readingR !=  RlastButtonState) {
     // reset red debouncing timer
-    switches.a_debounce = millis();
-  } else if(readingG != switches.button_b[1] ) {
+    RlastDebounceTime = millis();
+  } else if(readingG != GlastButtonState ) {
     // reset green debouncing timer
-    switches.b_debounce = millis();
+    GlastDebounceTime = millis();
   }
 
-  if ((millis() - switches.a_debounce) > switches.debounceDelay || (millis() -  switches.b_debounce) > switches.debounceDelay ) {
+  if ((millis() - GlastDebounceTime) > debounceDelay || (millis() -  RlastDebounceTime) > debounceDelay ) {
     // whatever the reading is at, it's been there for longer
     // than the debounce delay, so take it as the actual current state:
     // if the button state has changed:
-    if (readingG != switches.button_a[0]) {
-      switches.button_a[0] = readingG;
+    if (readingG != GbuttonState) {
+      GbuttonState = readingG;
       // only toggle the LED if the new button state is HIGH
-      if (switches.button_a[0] == HIGH) {
+      if (GbuttonState == HIGH) {
         // toggle the Green LED & Relay from button press
         Serial.println("green button pressed!");
-        switches.led_a = !switches.led_a;
-        digitalWrite(switches.led_a_p, switches.led_a);
-        digitalWrite(switches.rs_a_p, !switches.led_a);  // should be the 'same' as LED, in the case of relays ON is LOW, OFF is HIGH
+        GledState = !GledState;
+        digitalWrite(greenL, GledState);
+        digitalWrite(relayG, !GledState);  // should be the 'same' as LED, in the case of relays ON is LOW, OFF is HIGH
         // send an encoded payload back to base
-        sendJsonPL("green", (int)switches.led_a);
+        sendJsonPL("green", (int)GledState);
        }
     }
 
-    if( readingR != switches.button_b[0]){
-      switches.button_b[0] = readingR;
-      if (switches.button_b[0] == HIGH) {
+    if( readingR != RbuttonState){
+      RbuttonState = readingR;
+      if (RbuttonState == HIGH) {
         // toggle the Green LED & Relay from button press :
-        switches.led_b = !switches.led_b;
+        RledState = !RledState;
         char redPL[] = "red button pressed";
-        digitalWrite(switches.led_b_p, switches.led_b);
-        digitalWrite(switches.rs_b_p, !switches.led_b);
+        digitalWrite(redL, RledState);
+        digitalWrite(relayR, !RledState);
          // send an encoded payload back to base
-         sendJsonPL("red", (int)switches.led_b);
+         sendJsonPL("red", (int)RledState);
       }
     }
   }
 
-  switches.button_a[1] = readingR;
-  switches.button_b[1] = readingG;
+  RlastButtonState = readingR;
+  GlastButtonState = readingG;
 
 }
