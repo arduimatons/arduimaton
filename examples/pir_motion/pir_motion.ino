@@ -76,27 +76,25 @@ void motionInterval(){
 
 }
 
-// a function to construct custom a message payload
-// should always include heartbeat
-// heartbeat can be represented as an "hb" key at the root of the json payload or as last element of a json array
+// a function to construct a custom message payload
 void sendJsonPL(char* key, int val ){
-    StaticJsonBuffer<60> jsonBuffer;
+    StaticJsonBuffer<50> jsonBuffer;
     JsonObject& root = jsonBuffer.createObject();
     root[key] = val;
     // grab heartbeat from arduimaton object
-    root["hb"] = motionPIR.heartBeat();
     char json[50];
     size_t sz = root.printTo(json, sizeof(json)); 
+    // make sure string sent to genPayload is null terminated
     json[sz] = '\0'; 
-    char encodedPL[90];
-    // fill encoded payload buffer with a generated payload
-    size_t plLen = motionPIR.genPayload(encodedPL, json, 90 );
-    encodedPL[plLen] = '\0';
+    char encodedPL[60];
+    // timestamp, encode and hash payload, moves to encodedPL buf as null terminated string 
+    size_t plLen = motionPIR.genPayload(encodedPL, json);
     //create RF24 network header, destined for the master node, of NODE_MSG1 which does not expect an ACK
     RF24NetworkHeader header(00, NODE_MSG1);
     if(network.write(header, &encodedPL, strlen(encodedPL)))
     {
       Serial.println("sent encoded payload!");
-     // Serial.println(encodedPL);
+      Serial.println(encodedPL);
+      Serial.println(strlen(encodedPL));
     }
 }
