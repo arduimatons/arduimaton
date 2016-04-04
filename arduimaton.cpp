@@ -5,7 +5,7 @@ void Arduimaton::default_handler(RF24NetworkHeader& header)
   char payload[100];
   size_t plSize = _network.read(header, &payload, sizeof(payload));
   payload[plSize] = '\0';
-  char validPayload[80];
+  char validPayload[50];
   size_t valid_pl_len = this->getPayload(validPayload, payload, plSize);
   if(valid_pl_len > 0){
       validPayload[valid_pl_len] = '\0';
@@ -17,11 +17,16 @@ void Arduimaton::default_handler(RF24NetworkHeader& header)
   }
 }
 
-void Arduimaton::setInfo(char* n, char* v, uint8_t t)
+void Arduimaton::setInfo(char* n, char* v)
 {
   this->name = n;
   this->version = v;
-  this->type = t;
+}
+
+void Arduimaton::setType(uint8_t t)
+{
+  // this is pretty sloppy, but serves its purpose...
+  (this->types[0] == 0) ? this->types[0] = t : this->types[1] = t;
 }
 
 Arduimaton::Arduimaton(RF24Network& network): _network(network)
@@ -35,16 +40,35 @@ Arduimaton::~Arduimaton()
   
 }
 
+
+
+void Arduimaton::begin(uint16_t node_id)
+{
+   _network.begin(node_id);
+  // set node to multicast relay to children nodes by default
+  //_network.multicastRelay = true;
+  // set multicast level to the type of node so all "MOTION" nodes can be address with a multicast to level MOTION
+  // can have up to 6 levels which enables up to 6 unique types, 
+  // nodes can be more than one type IE MOTION & TEMP , or SWITCH & TEMP but will only listen on one multicast pipe
+  // might be able to be more than 2 types, but two seems reasonable...
+ // _network.multicastLevel(this->types[0]);
+}
+
 bool Arduimaton::sendInfo()
 {   
-    StaticJsonBuffer<75> jsonBuffer;
-    JsonArray& array = jsonBuffer.createArray();
-    array.add(this->name);
-    array.add(this->version);
-    array.add(this->type);
-    char jsonData[75]; //create buffer to store json
-    size_t sz = array.printTo(jsonData, sizeof(jsonData)); 
-    jsonData[sz]  = '\0'; // add null terminator
+    StaticJsonBuffer<100> jsonBuffer;
+    JsonObject& root = jsonBuffer.createObject();
+    root["n"] = this->name;
+    root["v"] = this->version;
+    JsonArray& ts = root.createNestedArray("t");
+    ts.add(this->types[0]);
+    if(this->types[1] != 0)
+    {
+      ts.add(this->types[1]);
+    }
+    // measure size of json, create char to fit + null
+    char jsonData[root.measureLength()+1];
+    size_t sz = root.printTo(jsonData, sizeof(jsonData)); 
     RF24NetworkHeader header(/*to node*/ 00, /*type*/ NODE_STATUS);
     #ifdef SERIAL_DEBUG
       Serial.println("Sending info to master!");
@@ -72,7 +96,8 @@ bool Arduimaton::regHandler(rf_handler _handler)
 
 void Arduimaton::handle_HB(RF24NetworkHeader& header)
 {
-  char payload[64]; // little bigger than it needs to be.
+  // little bigger than it needs to be. is 50 with defaul digest size
+  char payload[65]; 
   size_t full_len = _network.read(header, &payload, sizeof(payload));
   payload[full_len] = '\0';
   char dataPL[11]; // 10 + null
@@ -93,7 +118,7 @@ long  Arduimaton::heartBeat(){
 
 void Arduimaton::loop()
 {
-  this->now = millis(); // keep track of 'now'
+  long now = millis();
   // keep network updated
   _network.update();
   while ( _network.available() )  {                      // Is there anything ready for us?
@@ -121,10 +146,11 @@ void Arduimaton::loop()
     // if not registered by have got a beat;
     if(!this->registered && this->beat > 0) {
       this->sendInfo();
-      this->registered = true; // just make sure this doesnt go again...will trigger on M_INTERVAL.
+      // just make sure this doesnt go again...will trigger on M_INTERVAL.
+      this->registered = true; 
     }
 
-    if((this->now - sent_alive_msg) > M_INTERVAL){
+    if(now - sent_alive_msg > M_INTERVAL){
         this->sendInfo();
         this->sent_alive_msg = now;  
      }

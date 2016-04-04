@@ -17,6 +17,7 @@
 enum NO_ACK_MSG_TYPES { NODE_STATUS = 0, NODE_MSG1, NODE_MSG2, NODE_MSG3, NODE_MSG4, BEAT };
 // 65-67
 enum ACK_MSG_TYPES { FUNCTION_1 = 65, FUNCTION_2, FUNCTION_3};
+enum NODE_TYPES { TEMP = 1, MOTION, SWITCH, RGB};
 
 // function pointers
 typedef void (*rf_handler)(RF24NetworkHeader&);
@@ -30,7 +31,8 @@ class Arduimaton
     Arduimaton(RF24Network &);
     ~Arduimaton();
   
-    void setInfo(char[10], char[10], uint8_t);
+    void setInfo(char[11], char[9]);
+    void setType(uint8_t t);
    
     bool regHandler(rf_handler);
 
@@ -44,26 +46,28 @@ class Arduimaton
     
     size_t genPayload(char*, char*);
 
+    void begin(uint16_t node_id);
+
+
   private:
     bool sendInfo();
     char* name;
     char* version;
-    uint8_t type;
+
+    // can have a maximum of 2 types, between 1-6
+    uint8_t types[2] = {0,0};
     
     RF24Network& _network;
 
     uint8_t handlerCount = 0;
-    long now; 
-
+   
     void createHash(char*, char*);
 
     void default_handler(RF24NetworkHeader&);
 
     void default_interval();
     long last_def_interval; 
-     
-    uint16_t node_id;
-   
+      
     rf_handler function1;
     rf_handler function2;
 

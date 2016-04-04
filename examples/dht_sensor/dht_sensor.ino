@@ -42,16 +42,22 @@ long last_sent_temp;
 
 void setup() {
   Serial.begin(9600);
-  arduimaton.setInfo("Den1", "0.0.1", 5);
+  arduimaton.setInfo("Den1", "0.0.1");
+  arduimaton.setType(TEMP);
+  arduimaton.setType(MOTION);
+
   SPI.begin();            
   radio.begin();
   // can configure RF24 radio, channel, PAlevel etc
   radio.setChannel(115);
   radio.setPALevel(RF24_PA_MAX);
-  network.begin(02);
+
   dht.begin();
 
- }
+
+  arduimaton.begin(02);
+  
+}
 
 void loop() {
   // Wait a few seconds between measurements.
@@ -82,10 +88,8 @@ void sendJsonPL(){
     root["i"] = hic;
     root["h"] =  h;
     // grab heartbeat from arduimaton object
-    char json[80];
+    char json[root.measureLength()+1];
     size_t sz = root.printTo(json, sizeof(json)); 
-    json[sz] = '\0'; 
-    Serial.println(json);
     char encodedPL[100];
     // timestamp, encode and hash payload, moves to encodedPL buf as null terminated string 
     size_t plLen = arduimaton.genPayload(encodedPL, json);
@@ -93,9 +97,9 @@ void sendJsonPL(){
     RF24NetworkHeader header(00, NODE_MSG1);
     if(network.write(header, &encodedPL, strlen(encodedPL)))
     {
-      Serial.println("sent encoded payload!");
-      Serial.println(encodedPL);
-      Serial.println(strlen(encodedPL));
+      Serial.print("sent encoded payload, len:"); Serial.println(strlen(encodedPL));
+      Serial.print("payload: "); Serial.println(json);
+      
     }
  }  
 }
