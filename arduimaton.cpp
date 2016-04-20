@@ -43,10 +43,11 @@ Arduimaton::~Arduimaton()
 
 
 void Arduimaton::begin(uint16_t node_id)
-{
+{ 
+   //_network.multicastRelay = true;
    _network.begin(node_id);
   // set node to multicast relay to children nodes by default
-  //_network.multicastRelay = true;
+
   // set multicast level to the type of node so all "MOTION" nodes can be address with a multicast to level MOTION
   // can have up to 6 levels which enables up to 6 unique types, 
   // nodes can be more than one type IE MOTION & TEMP , or SWITCH & TEMP but will only listen on one multicast pipe
@@ -118,8 +119,7 @@ long  Arduimaton::heartBeat(){
 
 void Arduimaton::loop()
 {
-  long now = millis();
-  // keep network updated
+
   _network.update();
   while ( _network.available() )  {                      // Is there anything ready for us?
     RF24NetworkHeader header;                            // If so, take a look at it
@@ -141,7 +141,12 @@ void Arduimaton::loop()
               _network.read(header,0,0);
               break;
       };
-    }
+    
+    _network.update();
+  }
+
+    long now = millis();
+  // keep network updated
 
     // if not registered by have got a beat;
     if(!this->registered && this->beat > 0) {
@@ -179,23 +184,21 @@ size_t Arduimaton::genPayload(char* output, char* to_encode_and_sign)
   // long to a char*
   ltoa(this->heartBeat(), myHB, 10);
   // calculate encoded length of heartbeat
-  size_t encodedLenHead = base64_enc_len(strlen(myHB));
+  size_t encodedLenHead = strlen(myHB);
   // calculate encoded length of hash, without null terminator
-  size_t encodedLenHASH = base64_enc_len(DIGEST_SIZE_HEX-1);
+  size_t encodedLenHASH = DIGEST_SIZE_HEX-1;
   // calculate length of string we are hashing
   size_t toHashLen = (encodedLenHead + 1 + encodedLenMSG);
   // we know enough to calculate entire payload length
   size_t full_pl_len = (toHashLen + 1 + encodedLenHASH);
   // create temporary buffers to store parts of message we are going to encode and hash
-  char encodedHead[encodedLenHead];
   char encodedMSG[encodedLenMSG];
   char toHash[toHashLen+1];
   // encode heartbeat
-  base64_encode(encodedHead, myHB, strlen(myHB));
   // null byte
-  encodedHead[encodedLenHead] = '\0'; 
   // move encoded hb to temp buffer
-  strncpy(toHash,encodedHead, encodedLenHead+1);  
+  strncpy(toHash,myHB, 10); 
+  toHash[10] = '\0';
   // encode message
   base64_encode(encodedMSG, to_encode_and_sign, strlen(to_encode_and_sign)); 
   // null byte
@@ -213,13 +216,13 @@ size_t Arduimaton::genPayload(char* output, char* to_encode_and_sign)
   // generate hash of payload    
   createHash(payloadHash, toHash);
   // create buffer for encoded hash
-  char encodedHASH[encodedLenHASH];
+  //char encodedHASH[encodedLenHASH];
   // encode hash
-  base64_encode(encodedHASH, payloadHash, strlen(payloadHash));   
+  //base64_encode(encodedHASH, payloadHash, strlen(payloadHash));   
   // null byte
-  encodedHASH[encodedLenHASH] = '\0';
+  //encodedHASH[encodedLenHASH] = '\0';
   // finish output buffer, include null terminator.
-  strncat(output, encodedHASH, encodedLenHASH+1); 
+  strncat(output, payloadHash, DIGEST_SIZE_HEX+1); 
   #ifdef SERIAL_DEBUG
    Serial.println("generated payload: ");
    Serial.println(output);
@@ -227,56 +230,58 @@ size_t Arduimaton::genPayload(char* output, char* to_encode_and_sign)
   // return str length of output buffer.
  return strlen(output);
 }
-
 // decode and test if payload is valid, returns >0 if the payload is good, will be on payloadData buff.
 size_t Arduimaton::getPayload(char* payloadData, char* rawPayload,  size_t full_pl_len)
 {
-  // pretty sure this is always going to be 16, encoded length of heartbeat.
-  size_t raw_enc_head_len = 16;
+  long msg_recieved_at = this->heartBeat(); // cool we got a message at?
+  // buff to store message beat
+  char msg_beat[11];
+  //grab beat off message
+  strncpy(msg_beat, rawPayload, 10); 
+  // null terminate
+  msg_beat[10] = '\0';
+  long diff = atol(msg_beat) - msg_recieved_at;
+
+  size_t raw_head_len = 10;
   // msg payload can change, scan string started at end of encoded heartbeat to determine length of encoded payload
-  size_t raw_enc_body_len = strcspn(rawPayload+raw_enc_head_len+1, "."); 
+  size_t raw_enc_body_len = strcspn(rawPayload+raw_head_len+1, "."); 
   // calculate length of hash based on full message length minus header body and periods
-  size_t raw_enc_hash_len = full_pl_len-(raw_enc_head_len+raw_enc_body_len+2); 
+  size_t hash_len = full_pl_len-(raw_head_len+raw_enc_body_len+2); 
   // the length of the message we need to hash is sum of head, body and a period
-  size_t hashedMsg_len = (raw_enc_head_len + raw_enc_body_len + 1);
+  size_t hashedMsg_len = (raw_head_len + raw_enc_body_len + 1);
   // temp buf for hash test, we need to generate
-  char enc_head_body[hashedMsg_len+1]; 
+  char hashedMsg[hashedMsg_len+1]; 
   // temp buf for hash test, that came with message
-  char enc_hash[raw_enc_hash_len+1];   
+  char d_hash[hash_len+1];   
   // grab encoded header+payload, copy to enc_head_body buf
-  strncpy(enc_head_body, rawPayload, hashedMsg_len); 
-  enc_head_body[hashedMsg_len] = '\0'; 
+  strncpy(hashedMsg, rawPayload, hashedMsg_len); 
+  hashedMsg[hashedMsg_len] = '\0'; 
   // grap encoded hash, copy to enc_hash buf      
-  strncpy(enc_hash,rawPayload+hashedMsg_len+1,raw_enc_hash_len); 
-  enc_hash[raw_enc_hash_len] = '\0';
-  // get length of decoded hash
-  size_t decodedHashLEN = base64_dec_len(enc_hash, raw_enc_hash_len);
-  base64_decode(enc_hash, enc_hash, raw_enc_hash_len);
+  strncpy(d_hash,rawPayload+hashedMsg_len+1, hash_len); 
+  d_hash[hash_len] = '\0';
   // create hash of encoded header.payload
-  char my_hash[decodedHashLEN+1];
-  this->createHash(my_hash,enc_head_body);
+  char my_hash[hash_len+1];
+  this->createHash(my_hash,hashedMsg);
   // test if hashes match.
-  if(strncmp(my_hash,enc_hash, decodedHashLEN) == 0){
-    long msg_recieved_at = this->heartBeat(); // cool we got a message at?
-    // buff to store message beat
-    char msg_beat[11];
-    // decode beat
-    base64_decode(msg_beat, rawPayload, 16);
-    // null terminate
-    msg_beat[10] = '\0';
+  if(strncmp(my_hash,d_hash, hash_len) == 0){
     // calculate if this message was just delivered, or is some kinda replay
-    long diff = atol(msg_beat) - msg_recieved_at;
     #ifdef SERIAL_DEBUG
         Serial.print("MyBeat: "); Serial.println(msg_recieved_at); 
         Serial.print("MsgBeat: "); Serial.println(atol(msg_beat)); 
         Serial.print("HB Sway: "); Serial.println(diff); 
     #endif
     // will let a diff slide if we have not got a beat
-    if(diff <= 1 || this->beat == 0){    
+     // calculate hops, to determine a reasonable delay
+  
+    uint8_t valid_diff = (_network.parent() > 0) ? 5 : 1;
+    Serial.println("parent: ");
+    Serial.println(_network.parent());
+    Serial.println(valid_diff);
+    if(diff <= valid_diff || this->beat == 0){    
       // calculate length of decoded body
-      size_t decodedBodyLEN = base64_dec_len(rawPayload+raw_enc_head_len+1, raw_enc_body_len);
+      size_t decodedBodyLEN = base64_dec_len(rawPayload+raw_head_len+1, raw_enc_body_len);
       // decode body, put it on output buf, return length of decoded message, we got a payload!
-      base64_decode(payloadData, rawPayload+raw_enc_head_len+1, raw_enc_body_len);
+      base64_decode(payloadData, rawPayload+raw_head_len+1, raw_enc_body_len);
       return decodedBodyLEN;
     } else {
       #ifdef SERIAL_DEBUG
