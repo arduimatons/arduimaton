@@ -46,14 +46,15 @@ void LinxNode::beat_heart()
       char beat_payload[75];
       size_t beat_len = _network.read(header, beat_payload, sizeof(beat_payload));
       beat_payload[beat_len] = '\0';
-      Serial.println(beat_payload);
       char raw_beat[10];
       size_t valid_msg_size = decode(raw_beat, beat_payload, strlen(beat_payload), false);
       if(valid_msg_size > 0)
       {
         last_network_beat = millis(); // so we can see if it is our first heartbeat.
         network_beat = atol(raw_beat);
-        Serial.println(network_beat);
+        #ifdef SERIAL_DEBUG
+          Serial.print("Got beat: ");Serial.println(network_beat);
+        #endif
       }
       
     } 

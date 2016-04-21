@@ -1,8 +1,8 @@
 #include <Automaton.h>
 #include <Atm_button.h>
-#include "Att_relay.h"
+#include <Att_relay.h>
 #include <Atm_RF24Network.h>
-#include "arduimaton.h"
+#include <LinxNode.h>
 
 Att_button btn1,btn2;    // An Atm_button machine
 Att_relay relay1;
@@ -98,22 +98,31 @@ void msgcb()
   {
     case MSG_IN_1: 
       {
-          char green_msg[] = "GREEN";
-          char red_msg[] = "RED";
-          char payload[65];
-          size_t full_len = att_net.network.read(header, &payload, sizeof(payload));
-          payload[full_len] = '\0';
-          size_t msg_len = linx.decode(payload, payload, full_len);
-          Serial.println(payload);
-          if(msg_len > 0){
-            if(strncmp(payload, "GREEN", 5) == 0){
-              relay1.setBlink(10,0).setBlink(6,1);
-              relay1.trigger(relay1.EVT_TOGGLE);
-            } else if(strncmp(payload, "RED", 3) == 0){
-              relay2.setBlink(10,0).setBlink(6,1);
-              relay2.trigger(relay2.EVT_TOGGLE);
-            }
+        char green_msg[] = "GREEN";
+        char red_msg[] = "RED";
+        char payload[65];
+        size_t full_len = att_net.network.read(header, &payload, sizeof(payload));
+        payload[full_len] = '\0';
+        size_t msg_len = linx.decode(payload, payload, full_len);
+        if(msg_len > 0){
+          if(strncmp(payload, "GREEN", 5) == 0){
+            relay1.setBlink(10,0).setBlink(6,1);
+            relay1.trigger(relay1.EVT_TOGGLE);
+          } else if(strncmp(payload, "RED", 3) == 0){
+            relay2.setBlink(10,0).setBlink(6,1);
+            relay2.trigger(relay2.EVT_TOGGLE);
           }
-      }   
+        }
+      } 
+
+    default:
+      {
+        att_net.network.read(header,0,0);
+        #ifdef SERIAL_DEBUG
+          char err_msg[42];
+          sprintf(err_msg, "*** WARNING *** Unknown message type %c", header.type);
+        #endif  
+        break;
+      }
   }
 }
