@@ -1,202 +1,119 @@
-#include <arduimaton.h>
+#include <Automaton.h>
+#include <Atm_button.h>
+#include "Att_relay.h"
+#include <Atm_RF24Network.h>
+#include "arduimaton.h"
 
-// initalize RF24 Radio
-RF24 radio(9,10);
-RF24Network network(radio);
-// initalize Arduimaton class with radio, passed by reference.
-Arduimaton switches(network);
+Att_button btn1,btn2;    // An Atm_button machine
+Att_relay relay1;
+Att_relay relay2; // Custom Atm_relay machine
 
-void buttonInterval();
-void networkHandler(RF24NetworkHeader&);
-void sendJsonPL(char*, int );
+// initalize RF24 Radio & network
+RF24 radio(9, 10);
+// initalize RF24Network Machine
+Att_RF24Network att_net(radio);
+
+LinxNode linx(att_net.network);
 
 
-const int greenB = 4;  // the pin numbelsr of the pushbutton
-const int redB = 5;    // the pin number of the red pushbutton
+// message callback declaration
+void msgcb();
 
-const int redL = 6;    // the pin number of the red LED
-const int greenL = 7;  // the pin number of the LED
+// button callback declaration
+void btn_change( int press, int idx );
 
-const int relayG = 3;  // the pin number of the green relay
-const int relayR = 2;  // the number of the Red relay
-
-// Variables will change:
-int GledState = LOW;         // the current state of the output pin
-int GbuttonState;             // the current reading from the input pin
-int GlastButtonState = LOW;   // the previous reading from the input pin
-
-// Variables will change:
-int RledState = LOW;         // the current state of the output pin
-int RbuttonState;             // the current reading from the input pin
-int RlastButtonState = LOW;   // the previous reading from the input pin
-
-// the following variables are long's because the time, measured in miliseconds,
-// will quickly become a bigger number than can be stored in an int.
-unsigned long RlastDebounceTime = 0;  // the last time the output pin was toggled
-unsigned long GlastDebounceTime = 0;  // the last time the output pin was toggled
-unsigned int debounceDelay = 80;    // the debounce time; increase if the output flickers
-
+// And finally a factory to house them in
+TinyFactory factory; 
 
 void setup() {
-  Serial.begin(9600);
-  // doesnt really matter at this point, but sends an array with heartbeat container this info base
-  // str:name, str:version, int:type
-  switches.setInfo("switches", "0.0.3", 15);
+  Serial.begin( 9600 );
   
-  // pass a function pointer through to the register handler function to register a network handler
-  // the first handler will catch the first of the ACK_MSG_TYPES
-  // first registered handler will catch msg type 65, the second 66, the third 67
-  // depending on message payload will loggle and LED and corresponding relay
-  switches.regHandler(networkHandler);
   
-  // intervals run within the network update loop to react to environmental stimuli
-  // in this case watches two buttons and will send a message if either is pressed
-  // buttons also control the state of a relay
-  switches.regInterval(buttonInterval);
+  // init relays: relay pin, led pin
+  relay1.begin( 5, 7 );
+  relay2.begin( 6, 8 );
 
-  SPI.begin();            
-  radio.begin();
-  
-  // can configure RF24 radio or network here
-  radio.setChannel(115);
-  radio.setPALevel(RF24_PA_MAX);
-  
-  // Begin RF24Network
-  switches.begin(02);
+  btn1.begin(3).onPress(btn_change, 1);
+  btn2.begin(4).onPress(btn_change, 2);
 
+  // register custom message handler
+  att_net.onMsg(msgcb);
+  // begin RF24Network within machine, pass nodes address
+  att_net.begin(115,04);
 
-  // setup pins
-  pinMode(greenB, INPUT);
-  pinMode(redB, INPUT);
-  
-  pinMode(redL, OUTPUT);
-  pinMode(greenL, OUTPUT);
-  
-  pinMode(relayG, OUTPUT);
-  pinMode(relayR, OUTPUT);
+  linx.begin("switch", "0.1.0", SWITCH);
 
-  // set initial LED state
-  digitalWrite(redL,  RledState);
-  digitalWrite(greenL, GledState);
-
-  // set initial RELAY state, oposite of LED
-  digitalWrite(relayG, !GledState);
-  digitalWrite(relayR, !RledState);
-
+  factory
+  .add(att_net)
+  .add(relay1)
+  .add(relay2)
+  .add(btn1)
+  .add(btn2);
 }
 
-
-// start arduimaton loop.
 void loop() {
-  switches.loop();
+  factory.cycle();
+  linx.beat_heart();
+  // put your main code here, to run repeatedly:
 }
 
 
-// simple json payload with a single key and integer value
-void sendJsonPL(char* key, int val ){
-    StaticJsonBuffer<60> jsonBuffer;
-    JsonObject& root = jsonBuffer.createObject();
-    root[key] = val;
-    // grab heartbeat from arduimaton object
-    root["hb"] = switches.heartBeat();
-    char json[50];
-    size_t sz = root.printTo(json, sizeof(json)); 
-    json[sz] = '\0'; 
-    char encodedPL[110];
-    // fill encoded payload buffer with a generated payload
-    size_t plLen = switches.genPayload(encodedPL, json, 110 );
-    encodedPL[plLen] = '\0';
-    //create RF24 network header, destined for the master node, of NODE_MSG1 which does not expect an ACK
-    RF24NetworkHeader header(00, NODE_MSG1);
-    if(switches.write(header, &encodedPL, strlen(encodedPL)))
-    {
-      Serial.println("sent encoded payload!");
-     // Serial.println(encodedPL);
-    }
-}
 
-// handler function to be passed to register handler arduimaton method
-// can register multiple handlers that can support 3 different message types [65,66,67]
-// or use one type and act based on payload.
-void networkHandler(RF24NetworkHeader& header)
+// button callback
+void btn_change( int press, int idx )
 {
-  char payload[120];
-  size_t plSize = switches.read(header, &payload, sizeof(payload));
-  payload[plSize] = '\0';
-  //Serial.println(payload);
-  size_t eMsgLen = switches.encodedPayloadLen(payload);
-  char dataPL[eMsgLen]; // will be smaller than encoded length...
-  size_t goodPayload = switches.getPayload(dataPL, payload, eMsgLen, plSize);
-   if(goodPayload > 0){
-    dataPL[goodPayload] = '\0';
-    //Serial.println(dataPL);
-    if(strncmp(dataPL, "Red", 3) == 0){
-      //Serial.println("got red payload!");
-      RledState = !RledState;
-      digitalWrite(redL, RledState);
-      digitalWrite(relayR, !RledState);  // should be the 'same' as LED, in the case of relays ON is LOW, OFF is HIGH         
-    } else {
-       // Serial.println("got other payload!");
-        Serial.println(dataPL);
-       GledState = !GledState;
-      digitalWrite(greenL, GledState);
-      digitalWrite(relayR, !GledState);  // should be the 'same' as LED, in the case of relays ON is LOW, OFF is HIGH 
-    }
-   } else {
-    Serial.println("Invalid payload");
-    }
-
-}
-
-
-// button handling interval example
-void buttonInterval()
-{
-  int readingG = digitalRead(greenB);
-  int readingR = digitalRead(redB);
-
-    // If the switch changed, due to noise or pressing:
-  if (readingR !=  RlastButtonState) {
-    // reset red debouncing timer
-    RlastDebounceTime = millis();
-  } else if(readingG != GlastButtonState ) {
-    // reset green debouncing timer
-    GlastDebounceTime = millis();
-  }
-
-  if ((millis() - GlastDebounceTime) > debounceDelay || (millis() -  RlastDebounceTime) > debounceDelay ) {
-    // whatever the reading is at, it's been there for longer
-    // than the debounce delay, so take it as the actual current state:
-    // if the button state has changed:
-    if (readingG != GbuttonState) {
-      GbuttonState = readingG;
-      // only toggle the LED if the new button state is HIGH
-      if (GbuttonState == HIGH) {
-        // toggle the Green LED & Relay from button press
-        Serial.println("green button pressed!");
-        GledState = !GledState;
-        digitalWrite(greenL, GledState);
-        digitalWrite(relayG, !GledState);  // should be the 'same' as LED, in the case of relays ON is LOW, OFF is HIGH
-        // send an encoded payload back to base
-        sendJsonPL("green", (int)GledState);
-       }
-    }
-
-    if( readingR != RbuttonState){
-      RbuttonState = readingR;
-      if (RbuttonState == HIGH) {
-        // toggle the Green LED & Relay from button press :
-        RledState = !RledState;
-        char redPL[] = "red button pressed";
-        digitalWrite(redL, RledState);
-        digitalWrite(relayR, !RledState);
-         // send an encoded payload back to base
-         sendJsonPL("red", (int)RledState);
+  if ( press ) {
+      if(idx == 1)
+      {
+        Serial.println(relay1.state());
+        relay1.setBlink(0,0).setBlink(0,1);
+        relay1.trigger(relay1.EVT_TOGGLE);
+        char pl[] = "test payload";
+        char to_send[80];
+        size_t msg_len = linx.encode(to_send, pl);
+        att_net.send(to_send, msg_len, MSG_OUT_1);
       }
-    }
+
+      if(idx == 2)
+      {
+      Serial.println(relay2.state());
+      relay2.setBlink(0,0).setBlink(0,1);
+      relay2.trigger(relay2.EVT_TOGGLE);
+      char pl[] = "test payload";
+      char to_send[80];
+      size_t msg_len = linx.encode(to_send, pl);
+      att_net.send(to_send, msg_len, MSG_OUT_2);
+      }
+
   }
+}
 
-  RlastButtonState = readingR;
-  GlastButtonState = readingG;
 
+// message callback definition
+void msgcb()
+{
+  RF24NetworkHeader header;
+  att_net.network.peek(header);
+  switch(header.type)
+  {
+    case MSG_IN_1: 
+      {
+          char green_msg[] = "GREEN";
+          char red_msg[] = "RED";
+          char payload[65];
+          size_t full_len = att_net.network.read(header, &payload, sizeof(payload));
+          payload[full_len] = '\0';
+          size_t msg_len = linx.decode(payload, payload, full_len);
+          Serial.println(payload);
+          if(msg_len > 0){
+            if(strncmp(payload, "GREEN", 5) == 0){
+              relay1.setBlink(10,0).setBlink(6,1);
+              relay1.trigger(relay1.EVT_TOGGLE);
+            } else if(strncmp(payload, "RED", 3) == 0){
+              relay2.setBlink(10,0).setBlink(6,1);
+              relay2.trigger(relay2.EVT_TOGGLE);
+            }
+          }
+      }   
+  }
 }
