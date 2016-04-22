@@ -23,7 +23,7 @@ bool LinxNode::sendInfo()
     char info_buff[info_len]; 
     sprintf(info_buff,"%s,%s,%i", name, version, type );
     #ifdef SERIAL_DEBUG
-      Serial.println("Sending info to master!");
+      Serial.println(F("Sending alive msg: "));
       Serial.println(info_buff);
     #endif
     char toSend[120]; //create large buffer to store entire encoded msg
@@ -47,13 +47,14 @@ void LinxNode::beat_heart()
       size_t beat_len = _network.read(header, beat_payload, sizeof(beat_payload));
       beat_payload[beat_len] = '\0';
       char raw_beat[10];
-      size_t valid_msg_size = decode(raw_beat, beat_payload, strlen(beat_payload), false);
-      if(valid_msg_size > 0)
+      size_t valid_msg_size = decode(raw_beat, beat_payload, beat_len, false);
+      Serial.println(header.from_node);
+      if(valid_msg_size > 0 && header.from_node == 0)
       {
         last_network_beat = millis(); // so we can see if it is our first heartbeat.
         network_beat = atol(raw_beat);
         #ifdef SERIAL_DEBUG
-          Serial.print("Got beat: ");Serial.println(network_beat);
+          Serial.print(F("Got beat: "));Serial.println(network_beat);
         #endif
       }
       
@@ -137,7 +138,7 @@ size_t LinxNode::encode(char* output, char* to_encode_and_sign)
   // finish output buffer, include null terminator.
   strncat(output, payloadHash, DIGEST_SIZE_HEX+1); 
   #ifdef SERIAL_DEBUG
-   Serial.println("generated payload: ");
+   Serial.println(F("generated payload: "));
    Serial.println(output);
   #endif
   // return str length of output buffer.
@@ -179,9 +180,9 @@ size_t LinxNode::decode(char* output, char* raw_pl, size_t raw_pl_len, bool chec
   if(strncmp(generated_hash,delivered_hash, hash_len) == 0){
     // calculate if this message was just delivered, or is some kinda replay
     #ifdef SERIAL_DEBUG
-        Serial.print("MyBeat: "); Serial.println(msg_recieved_at); 
-        Serial.print("MsgBeat: "); Serial.println(atol(msg_beat)); 
-        Serial.print("HB Sway: "); Serial.println(diff); 
+        Serial.print(F("MyBeat: ")); Serial.println(msg_recieved_at); 
+        Serial.print(F("MsgBeat: ")); Serial.println(atol(msg_beat)); 
+        Serial.print(F("HB Sway: ")); Serial.println(diff); 
     #endif
     // will let a diff slide if we have not got a beat
      // calculate hops, to determine a reasonable delay
